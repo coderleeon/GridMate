@@ -183,15 +183,18 @@ function setupCellInteractions(cell, r, c) {
     const input = cell.querySelector('.cell-input');
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Backspace' || e.key === 'Delete') {
+            e.stopPropagation(); // Stop event propagation to document
             if (!givens[r][c]) updateCellValue(r, c, 0, true);
             e.preventDefault();
         } else if (e.key >= '1' && e.key <= '9') {
+            e.stopPropagation(); // Stop event propagation to document
             if (!givens[r][c]) updateCellValue(r, c, parseInt(e.key), true);
             e.preventDefault();
-        } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
-            // Let the global keyboard navigation handle arrow keys
+        } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape'].includes(e.key)) {
+            // Let navigation bubble up to document keyboard listener
             return;
         } else {
+            e.stopPropagation();
             e.preventDefault(); // block letters & special symbols
         }
     });
@@ -800,8 +803,15 @@ window.closeModal = function(modalId) {
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
         // Let inputs handle typing inside modals
-        if (document.activeElement.tagName === 'INPUT' && !document.activeElement.classList.contains('cell-input')) {
-            return;
+        if (document.activeElement.tagName === 'INPUT') {
+            // If focused on grid cell, allow navigation but block typing duplication
+            if (document.activeElement.classList.contains('cell-input')) {
+                if (!['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'escape', 'z', 'y'].includes(e.key.toLowerCase())) {
+                    return;
+                }
+            } else {
+                return; // block entirely for normal text inputs/modals
+            }
         }
 
         // Ctrl + Z = Undo
