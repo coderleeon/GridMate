@@ -183,10 +183,10 @@ function setupCellInteractions(cell, r, c) {
     const input = cell.querySelector('.cell-input');
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Backspace' || e.key === 'Delete') {
-            if (!givens[r][c]) updateCellValue(r, c, 0);
+            if (!givens[r][c]) updateCellValue(r, c, 0, true);
             e.preventDefault();
         } else if (e.key >= '1' && e.key <= '9') {
-            if (!givens[r][c]) updateCellValue(r, c, parseInt(e.key));
+            if (!givens[r][c]) updateCellValue(r, c, parseInt(e.key), true);
             e.preventDefault();
         } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
             // Let the global keyboard navigation handle arrow keys
@@ -243,9 +243,9 @@ function setupKeypad() {
             if (givens[row][col]) return; // Cannot edit loaded templates
             
             if (val === 'clear') {
-                updateCellValue(row, col, 0);
+                updateCellValue(row, col, 0, true);
             } else if (val) {
-                updateCellValue(row, col, parseInt(val));
+                updateCellValue(row, col, parseInt(val), true);
             }
         });
     });
@@ -260,7 +260,7 @@ function setupKeypad() {
 }
 
 // Centralized Cell Updates & Rendering
-function updateCellValue(row, col, val) {
+function updateCellValue(row, col, val, isInteractive = false) {
     board[row][col] = val;
     
     // Sync into DOM Cell
@@ -288,7 +288,31 @@ function updateCellValue(row, col, val) {
     renderNotes();
     saveState();
     updateStats();
-    liveValidate();
+    
+    if (isInteractive) {
+        // Clear any current red conflict highlights on user edit
+        gridElement.querySelectorAll('.cell').forEach(c => c.classList.remove('conflict'));
+        
+        // Auto-advance to next cell
+        if (val >= 1 && val <= 9) {
+            let nextCol = col + 1;
+            let nextRow = row;
+            if (nextCol > 8) {
+                nextCol = 0;
+                nextRow = row + 1;
+            }
+            if (nextRow < 9) {
+                setActiveCell(nextRow, nextCol);
+                const nextCell = gridElement.querySelector(`.cell[data-row="${nextRow}"][data-col="${nextCol}"]`);
+                if (nextCell) {
+                    const nextInput = nextCell.querySelector('.cell-input');
+                    if (nextInput) nextInput.focus();
+                }
+            }
+        }
+    }
+    
+    updateStatusPill();
 }
 
 // Renders 3x3 Auto Note candidates dynamically inside empty cells
@@ -318,18 +342,11 @@ function renderNotes() {
     }
 }
 
-// Live Validation updates status markers without blocking
-function liveValidate() {
+// Updates the text of the status pill without highlighting cells in red
+function updateStatusPill() {
     const conflicts = getBoardConflicts(board);
     
-    // Remove old conflict highlighting
-    gridElement.querySelectorAll('.cell').forEach(c => c.classList.remove('conflict'));
-    
     if (conflicts.length > 0) {
-        conflicts.forEach(coord => {
-            const cell = gridElement.querySelector(`.cell[data-row="${coord.row}"][data-col="${coord.col}"]`);
-            if (cell) cell.classList.add('conflict');
-        });
         statusPill.innerText = "Invalid";
         statusPill.className = "status-pill invalid";
     } else {
@@ -351,16 +368,31 @@ function liveValidate() {
     }
 }
 
+// Highlights cells with conflicts in red and returns true if any exist
+function showValidationConflicts() {
+    const conflicts = getBoardConflicts(board);
+    
+    // Remove old conflict highlighting
+    gridElement.querySelectorAll('.cell').forEach(c => c.classList.remove('conflict'));
+    
+    if (conflicts.length > 0) {
+        conflicts.forEach(coord => {
+            const cell = gridElement.querySelector(`.cell[data-row="${coord.row}"][data-col="${coord.col}"]`);
+            if (cell) cell.classList.add('conflict');
+        });
+        statusPill.innerText = "Invalid";
+        statusPill.className = "status-pill invalid";
+        return true;
+    }
+    return false;
+}
+
 // Action Bar Buttons Setup
 function setupActionBar() {
     // Validate Button
     document.getElementById('btn-validate').addEventListener('click', () => {
-        const conflicts = getBoardConflicts(board);
-        if (conflicts.length > 0) {
-            conflicts.forEach(coord => {
-                const cell = gridElement.querySelector(`.cell[data-row="${coord.row}"][data-col="${coord.col}"]`);
-                if (cell) cell.classList.add('conflict');
-            });
+        const hasConflicts = showValidationConflicts();
+        if (hasConflicts) {
             explanationBody.innerHTML = `
                 <div style="color: var(--accent-error); font-weight:600;">Validation Failed!</div>
                 The grid contains duplicate numbers in rows, columns, or 3x3 subgrids. Conflicting cells are highlighted in red.
@@ -457,6 +489,17 @@ function setupActionBar() {
 
     // Solve Button
     document.getElementById('btn-solve').addEventListener('click', () => {
+        // Highlight conflicts if any, and prevent solve
+        const hasConflicts = showValidationConflicts();
+        if (hasConflicts) {
+            explanationBody.innerHTML = `
+                <div style="color: var(--accent-error); font-weight:600;">Solve Failed!</div>
+                The grid contains duplicate numbers in rows, columns, or 3x3 subgrids. Conflicting cells are highlighted in red.
+            `;
+            document.getElementById('card-explanation').classList.add('open');
+            return;
+        }
+
         // Save state for undo/reset capability
         preSolveBoard = cloneBoard(board);
         
@@ -494,7 +537,7 @@ function setupActionBar() {
             statTime.innerText = `${elapsed} ms`;
             statCalls.innerText = result.steps;
             updateStats();
-            liveValidate();
+            updateStatusPill();
             
             // Set difficulty
             const diff = estimateDifficulty(preSolveBoard, result.steps);
@@ -529,7 +572,7 @@ function setupBottomSheet() {
         syncBoardToDOM();
         saveState();
         updateStats();
-        liveValidate();
+        updateStatusPill();
         explanationBody.innerText = "Board restored to pre-solve state.";
     });
 
@@ -544,7 +587,7 @@ function setupBottomSheet() {
         clearActiveCell();
         saveState();
         updateStats();
-        liveValidate();
+        updateStatusPill();
         
         // Reset pills
         difficultyPill.innerText = "N/A";
@@ -603,7 +646,7 @@ function undo() {
         
         syncBoardToDOM();
         updateStats();
-        liveValidate();
+        updateStatusPill();
         explanationBody.innerText = "Action Undone.";
     }
 }
@@ -617,7 +660,7 @@ function redo() {
         
         syncBoardToDOM();
         updateStats();
-        liveValidate();
+        updateStatusPill();
         explanationBody.innerText = "Action Redone.";
     }
 }
@@ -684,7 +727,7 @@ function loadBoardString(sudokuStr) {
     saveState();
     
     updateStats();
-    liveValidate();
+    updateStatusPill();
     
     // Estimate difficulty based on clues loaded
     difficultyPill.innerText = estimateDifficulty(board, 0);
@@ -779,10 +822,10 @@ function setupKeyboardShortcuts() {
         const { row, col } = activeCell;
 
         if (e.key >= '1' && e.key <= '9') {
-            if (!givens[row][col]) updateCellValue(row, col, parseInt(e.key));
+            if (!givens[row][col]) updateCellValue(row, col, parseInt(e.key), true);
             e.preventDefault();
         } else if (e.key === 'Backspace' || e.key === 'Delete') {
-            if (!givens[row][col]) updateCellValue(row, col, 0);
+            if (!givens[row][col]) updateCellValue(row, col, 0, true);
             e.preventDefault();
         } else if (e.key === 'ArrowUp') {
             const nextRow = (row - 1 + 9) % 9;
