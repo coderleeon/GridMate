@@ -181,15 +181,34 @@ function setupCellInteractions(cell, r, c) {
 
     // Handle hidden input keystrokes
     const input = cell.querySelector('.cell-input');
+    
+    // Handle mobile keyboard and soft character additions via input event
+    input.addEventListener('input', (e) => {
+        const val = input.value;
+        if (val.length > 0) {
+            const lastChar = val.charAt(val.length - 1);
+            const digit = parseInt(lastChar);
+            if (digit >= 1 && digit <= 9) {
+                if (!givens[r][c]) {
+                    updateCellValue(r, c, digit, true);
+                }
+            }
+            // Clear the value so it is ready for subsequent keystrokes
+            input.value = "";
+        }
+    });
+
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (e.key === 'Backspace' || e.key === 'Delete' || e.keyCode === 8 || e.keyCode === 46) {
             e.stopPropagation(); // Stop event propagation to document
             if (!givens[r][c]) updateCellValue(r, c, 0, true);
             e.preventDefault();
+            input.value = "";
         } else if (e.key >= '1' && e.key <= '9') {
             e.stopPropagation(); // Stop event propagation to document
             if (!givens[r][c]) updateCellValue(r, c, parseInt(e.key), true);
             e.preventDefault();
+            input.value = "";
         } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape'].includes(e.key)) {
             // Let navigation bubble up to document keyboard listener
             return;
@@ -305,12 +324,20 @@ function updateCellValue(row, col, val, isInteractive = false) {
                 nextRow = row + 1;
             }
             if (nextRow < 9) {
-                setActiveCell(nextRow, nextCol);
-                const nextCell = gridElement.querySelector(`.cell[data-row="${nextRow}"][data-col="${nextCol}"]`);
-                if (nextCell) {
-                    const nextInput = nextCell.querySelector('.cell-input');
-                    if (nextInput) nextInput.focus();
-                }
+                // Defer the focus transition using setTimeout (80ms).
+                // This prevents race conditions on mobile soft keyboards where focusing the
+                // next input immediately routes the active keyboard keystroke twice.
+                setTimeout(() => {
+                    // Ensure the user hasn't clicked elsewhere during the brief delay
+                    if (activeCell && activeCell.row === row && activeCell.col === col) {
+                        setActiveCell(nextRow, nextCol);
+                        const nextCell = gridElement.querySelector(`.cell[data-row="${nextRow}"][data-col="${nextCol}"]`);
+                        if (nextCell) {
+                            const nextInput = nextCell.querySelector('.cell-input');
+                            if (nextInput) nextInput.focus();
+                        }
+                    }
+                }, 80);
             }
         }
     }
