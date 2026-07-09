@@ -29,6 +29,7 @@ let activeCell = null; // {row, col}
 let autoNotesActive = false;
 let isSolvingAnimated = false;
 let animationFrameId = null;
+let lastKeyboardInputTime = 0; // Prevent duplicate mobile soft keyboard inputs during focus transitions
 
 // DOM Elements
 const gridElement = document.getElementById('sudoku-grid');
@@ -190,7 +191,8 @@ function setupCellInteractions(cell, r, c) {
             const digit = parseInt(lastChar);
             if (digit >= 1 && digit <= 9) {
                 if (!givens[r][c]) {
-                    updateCellValue(r, c, digit, true);
+                    // Pass 'true' for isKeyboard to filter focus-shift race condition duplicates
+                    updateCellValue(r, c, digit, true, true);
                 }
             }
             // Clear the value so it is ready for subsequent keystrokes
@@ -201,14 +203,14 @@ function setupCellInteractions(cell, r, c) {
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Backspace' || e.key === 'Delete' || e.keyCode === 8 || e.keyCode === 46) {
             e.stopPropagation(); // Stop event propagation to document
-            if (!givens[r][c]) updateCellValue(r, c, 0, true);
+            if (!givens[r][c]) updateCellValue(r, c, 0, true, true);
             e.preventDefault();
             input.value = "";
         } else if (e.key >= '1' && e.key <= '9') {
-            e.stopPropagation(); // Stop event propagation to document
-            if (!givens[r][c]) updateCellValue(r, c, parseInt(e.key), true);
-            e.preventDefault();
-            input.value = "";
+            // Stop event propagation so it doesn't trigger the document listener.
+            // We do NOT preventDefault or write it here anymore; we let it fall through
+            // to the 'input' event where it is cleanly processed for both desktop and mobile!
+            e.stopPropagation();
         } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape'].includes(e.key)) {
             // Let navigation bubble up to document keyboard listener
             return;
@@ -265,9 +267,9 @@ function setupKeypad() {
             if (givens[row][col]) return; // Cannot edit loaded templates
             
             if (val === 'clear') {
-                updateCellValue(row, col, 0, true);
+                updateCellValue(row, col, 0, true, false);
             } else if (val) {
-                updateCellValue(row, col, parseInt(val), true);
+                updateCellValue(row, col, parseInt(val), true, false);
             }
         });
     });
@@ -282,7 +284,16 @@ function setupKeypad() {
 }
 
 // Centralized Cell Updates & Rendering
-function updateCellValue(row, col, val, isInteractive = false) {
+function updateCellValue(row, col, val, isInteractive = false, isKeyboard = false) {
+    if (isKeyboard && val !== 0) {
+        const now = Date.now();
+        // Reject rapid duplicate inputs within 180ms triggered by mobile software keyboard focus-shifting routing
+        if (now - lastKeyboardInputTime < 180) {
+            return;
+        }
+        lastKeyboardInputTime = now;
+    }
+
     board[row][col] = val;
     
     // Sync into DOM Cell
@@ -324,7 +335,7 @@ function updateCellValue(row, col, val, isInteractive = false) {
                 nextRow = row + 1;
             }
             if (nextRow < 9) {
-                // Defer the focus transition using setTimeout (80ms).
+                // Defer the focus transition using setTimeout (85ms).
                 // This prevents race conditions on mobile soft keyboards where focusing the
                 // next input immediately routes the active keyboard keystroke twice.
                 setTimeout(() => {
@@ -337,7 +348,7 @@ function updateCellValue(row, col, val, isInteractive = false) {
                             if (nextInput) nextInput.focus();
                         }
                     }
-                }, 80);
+                }, 85);
             }
         }
     }
